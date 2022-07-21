@@ -1,21 +1,50 @@
 # ExBanking
 
-**TODO: Add description**
+[//]: # "Badges"
+[![Actions Status][actions badge]][actions]
 
-## Installation
+[//]: # "Links"
+[actions]: https://github.com/jaeyson/ex_banking/actions
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `ex_banking` to your list of dependencies in `mix.exs`:
+[//]: # "Image sources"
+[actions badge]: https://github.com/jaeyson/ex_banking/actions/workflows/ci.yml/badge.svg
+
+
+To simulate local nodes talking to each other and making transactions:
 
 ```elixir
-def deps do
-  [
-    {:ex_banking, "~> 0.1.0"}
-  ]
-end
+# node1
+# iex --sname node1@localhost -S mix
+
+# then add users
+iex> ExBanking.create_user("test")
+:ok
+
+iex> ExBanking.deposit("test", 1.2589, "usd")
+{:ok, 1.26}
 ```
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at <https://hexdocs.pm/ex_banking>.
+Then another node connects:
 
+```elixir
+# node2 (new)
+# iex --sname node2@localhost -S mix
+
+# connects to node1
+iex> State.connect_node(:node1@localhost)
+
+iex> ExBanking.create_user("node2")
+:ok
+
+iex> ExBanking.deposit("node2", 10, "usd")
+{:ok, 10.0}
+
+iex> ExBanking.send("node2", "test", 10, "usd")
+{:ok 0.0, 10.0}
+
+iex> ExBanking.get_balance("test", "usd")
+{:ok, 10.0}
+
+iex> ExBanking.get_balance("node2", "usd")
+{:ok, 0.0}
+```

@@ -1,6 +1,4 @@
 defmodule ExBanking.Application do
-  # See https://hexdocs.pm/elixir/Application.html
-  # for more information on OTP Applications
   @moduledoc false
 
   use Application
@@ -10,10 +8,9 @@ defmodule ExBanking.Application do
     children = [
       # Starts a worker by calling: ExBanking.Worker.start_link(arg)
       # {ExBanking.Worker, arg}
+      ExBanking.DynamicSupervisor
     ]
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
     opts = [strategy: :one_for_one, name: ExBanking.Supervisor]
     Supervisor.start_link(children, opts)
   end
