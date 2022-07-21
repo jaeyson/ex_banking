@@ -221,7 +221,9 @@ defmodule ExBankingTest do
       end)
 
       assert Bound.create_user("Jane Smith") === :ok
-      assert Bound.send("John Smith", "Jane Smith", 10, "usd") === {:error, :sender_does_not_exist}
+
+      assert Bound.send("John Smith", "Jane Smith", 10, "usd") ===
+               {:error, :sender_does_not_exist}
     end
 
     test "send to non-existing receiver" do
