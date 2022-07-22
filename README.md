@@ -40,10 +40,10 @@ iex> ExBanking.deposit("node2", 10, "usd")
 {:ok, 10.0}
 
 iex> ExBanking.send("node2", "test", 10, "usd")
-{:ok 0.0, 10.0}
+{:ok 0.0, 11.26}
 
 iex> ExBanking.get_balance("test", "usd")
-{:ok, 10.0}
+{:ok, 11.26}
 
 iex> ExBanking.get_balance("node2", "usd")
 {:ok, 0.0}

@@ -15,7 +15,7 @@ defmodule ExBanking.State do
   @user :user
   @rate_limit :rate_limit
   @default_currency "usd"
-  @rate_limit_operations 3
+  @rate_limit_operations 10
 
   # These are the fields and indices for
   # User table upon initializing.
