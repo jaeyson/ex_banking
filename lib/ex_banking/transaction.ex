@@ -14,19 +14,19 @@ defmodule ExBanking.Transaction do
   end
 
   def deposit(user, amount, currency) do
-    GenServer.call(__MODULE__, {:deposit, user, amount, currency}, 480_000)
+    GenServer.call(__MODULE__, {:deposit, user, amount, currency})
   end
 
   def withdraw(user, amount, currency) do
-    GenServer.call(__MODULE__, {:withdraw, user, amount, currency}, 480_000)
+    GenServer.call(__MODULE__, {:withdraw, user, amount, currency})
   end
 
   def get_balance(user, currency) do
-    GenServer.call(__MODULE__, {:get_balance, user, currency}, 480_000)
+    GenServer.call(__MODULE__, {:get_balance, user, currency})
   end
 
   def send(from_user, to_user, amount, currency) do
-    GenServer.call(__MODULE__, {:send, from_user, to_user, amount, currency}, 480_000)
+    GenServer.call(__MODULE__, {:send, from_user, to_user, amount, currency})
   end
 
   @impl true
