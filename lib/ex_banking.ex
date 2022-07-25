@@ -43,10 +43,10 @@ defmodule ExBanking do
 
   ## Examples
 
-      iex> ExBanking.create_user("John Smith")
+      iex> ExBanking.create_user("John Doe")
       :ok
 
-      iex> ExBanking.create_user("John Smith")
+      iex> ExBanking.create_user("John Doe")
       {:error, :user_already_exists}
 
   """
@@ -72,11 +72,11 @@ defmodule ExBanking do
 
   ## Examples
 
-      iex> ExBanking.create_user("testuser")
+      iex> ExBanking.create_user("John Doe")
       :ok
 
-      iex> ExBanking.deposit("testuser", 1.00, "usd")
-      {:ok, 1.00}
+      iex> ExBanking.deposit("John Doe", 1, "usd")
+      {:ok, 1.0}
 
   """
   @impl true
@@ -115,11 +115,8 @@ defmodule ExBanking do
       iex> ExBanking.create_user("John Doe")
       :ok
 
-      iex> ExBanking.deposit("John Doe", 1.00, "usd")
-      {:ok, 1.00}
-
-      iex> ExBanking.withdraw("John Doe", 10.00, "usd")
-      {:ok, 0.00}
+      iex> ExBanking.deposit("John Doe", 1, "usd")
+      {:ok, 1.0}
 
   """
   @impl true
@@ -153,11 +150,11 @@ defmodule ExBanking do
 
   ## Examples
 
-      iex> ExBanking.create_user("user_123")
+      iex> ExBanking.create_user("John Doe")
       :ok
 
-      iex> ExBanking.get_balance("user_123", "usd")
-      {:ok, 0.00}
+      iex> ExBanking.get_balance("John Doe", "usd")
+      {:ok, 0.0}
 
   """
   @impl true
@@ -190,11 +187,19 @@ defmodule ExBanking do
   - Returns `balance` of from_user and to_user in given format.
 
   ## Examples
+      iex> ExBanking.create_user("John Doe")
+      :ok
 
-      iex> ExBanking.send("test_user", "another_user", 25.00, "usd")
-      {:ok, "test_user", "another_user", 25.00}
+      iex> ExBanking.create_user("Gill Bates")
+      :ok
 
-      iex> ExBanking.send("test_user", "nonexistent_user", 25.00, "usd")
+      iex> ExBanking.deposit("John Doe", 100, "usd")
+      {:ok, 100.0}
+
+      iex> ExBanking.send("John Doe", "Gill Bates", 25, "usd")
+      {:ok, 75.0, 25.0}
+
+      iex> ExBanking.send("John Doe", "Nonexistent user", 25, "usd")
       {:error, :receiver_does_not_exist}
 
   """
