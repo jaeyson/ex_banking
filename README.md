@@ -9,10 +9,6 @@
 [//]: # "Image sources"
 [actions badge]: https://github.com/jaeyson/ex_banking/actions/workflows/ci.yml/badge.svg
 
-`using-task-module` branch: using GenServer + Task
-
-`using-task-module` branch:  using GenServer + Task
-
 To simulate local nodes talking to each other and making transactions:
 
 ```elixir
