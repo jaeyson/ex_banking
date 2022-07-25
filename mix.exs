@@ -11,7 +11,6 @@ defmodule ExBanking.MixProject do
       test_coverage: [
         ignore_modules: [
           ExBanking,
-          ExBanking.State,
           ExBanking.Transaction
         ]
       ]
