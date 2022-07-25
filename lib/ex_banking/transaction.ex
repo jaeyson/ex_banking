@@ -1,92 +1,304 @@
 defmodule ExBanking.Transaction do
-  use GenServer
-
-  alias ExBanking.State
-
   @moduledoc false
+  # @moduledoc since: "0.1.0"
 
-  def start_link(init) do
-    GenServer.start_link(__MODULE__, init, name: __MODULE__)
+  # This is where we store data. Based acceptance criteria:
+  # Application should not use any database / disc
+  # storage. All needed data should be stored only in
+  # application memory.
+
+  import :mnesia
+
+  @user :user
+  @rate_limit :rate_limit
+  @default_currency "usd"
+  @rate_limit_operations 10
+
+  # These are the fields and indices for
+  # User table upon initializing.
+  @user_opts [
+    attributes: [
+      :id,
+      :name,
+      :balance,
+      :currency
+    ],
+    index: [:name, :currency]
+  ]
+
+  @rate_limit_opts [
+    attributes: [
+      :id,
+      :name,
+      :rate_limit
+    ],
+    index: [:name]
+  ]
+
+  @doc """
+  Initializes mnesia with table and index
+  """
+  def init do
+    start()
+    create_table(@user, @user_opts)
+    create_table(@rate_limit, @rate_limit_opts)
   end
 
-  def create_user(user) do
-    GenServer.call(__MODULE__, {:create_user, user})
+  @doc """
+  Connect to another mnesia node.
+
+  ## Examples
+
+      iex> State.connect_node(:node1@localhost)
+      {ok, [:node1@localhost]}
+
+  """
+  def connect_node(node_name) do
+    Node.connect(node_name)
+
+    # Delete it before connecting from other node
+    # otherwise throws merge schema fail
+    stop()
+    delete_schema([node()])
+    start()
+
+    # set to running db
+    change_config(:extra_db_nodes, Node.list())
+
+    # persists when a remote node dies
+    add_table_copy(@user, node(), :ram_copies)
+    add_table_copy(@rate_limit, node(), :ram_copies)
+
+    # :rpc.multicall(Node.list(), :mnesia, :start, [])
   end
 
-  def deposit(user, amount, currency) do
-    GenServer.call(__MODULE__, {:deposit, user, amount, currency})
+  def add_user(user) do
+    case get_user(user) do
+      {:atomic, []} ->
+        id = increment_key()
+        user_input = {@user, id, user, 0.00, @default_currency}
+        rate_limit = {@rate_limit, id, user, @rate_limit_operations}
+
+        transaction(fn ->
+          write(user_input)
+          write(rate_limit)
+        end)
+
+        :ok
+
+      {:atomic, _} ->
+        {:error, :user_already_exists}
+    end
   end
 
-  def withdraw(user, amount, currency) do
-    GenServer.call(__MODULE__, {:withdraw, user, amount, currency})
+  def deposit(user, attrs, rate_limit) do
+    case rate_limit === 0 do
+      true -> {:error, :too_many_requests_to_user}
+      false -> do_deposit(user, attrs)
+    end
   end
 
-  def get_balance(user, currency) do
-    GenServer.call(__MODULE__, {:get_balance, user, currency})
+  def withdraw(user, attrs, rate_limit) do
+    case rate_limit === 0 do
+      true -> {:error, :too_many_requests_to_user}
+      false -> do_withdraw(user, attrs)
+    end
   end
 
-  def send(from_user, to_user, amount, currency) do
-    GenServer.call(__MODULE__, {:send, from_user, to_user, amount, currency})
+  def get_balance(user, currency, rate_limit) do
+    case rate_limit === 0 do
+      true -> {:error, :too_many_requests_to_user}
+      false -> do_get_balance(user, currency)
+    end
   end
 
-  @impl true
-  def init(_args) do
-    State.init()
-    {:ok, %{}}
+  def send(attrs, [sender_rate_limit, receiver_rate_limit] = _) do
+    case [sender_rate_limit === 0, receiver_rate_limit === 0] do
+      [true, false] ->
+        {:error, :too_many_requests_to_sender}
+
+      [true, true] ->
+        {:error, :too_many_requests_to_sender}
+
+      [false, true] ->
+        {:error, :too_many_requests_to_reciever}
+
+      _ ->
+        do_send(attrs)
+    end
   end
 
-  @impl true
-  def handle_call({:create_user, user}, _from, _state) do
-    new_state = State.add_user(user)
-    {:reply, new_state, new_state}
+  def do_deposit(user, attrs) do
+    calculate_balance = fn record, attrs, operation ->
+      [balance, record] = prepare_record(record, attrs, operation)
+
+      new_balance =
+        case transaction(fn -> write(record) end) do
+          {:atomic, _ok} -> balance
+          _ -> elem(record, 3)
+        end
+
+      {:ok, new_balance}
+    end
+
+    case get_user_currency(user, attrs.currency) do
+      [[], []] ->
+        {:error, :user_does_not_exists}
+
+      [new_currency, []] ->
+        calculate_balance.(List.first(new_currency), attrs, :new_deposit)
+
+      [_, [existing_currency]] ->
+        calculate_balance.(existing_currency, attrs, :deposit)
+    end
   end
 
-  @impl true
-  def handle_call({:deposit, user, amount, currency}, _from, _state) do
-    attrs = %{user: user, amount: amount, currency: currency}
-    rate_limit = State.get_rate_limit(user)
-    new_state = State.deposit(user, attrs, rate_limit)
-    {:reply, new_state, new_state}
+  def do_withdraw(user, attrs) do
+    case get_user_currency(user, attrs.currency) do
+      [[], []] ->
+        {:error, :user_does_not_exists}
+
+      [_, [existing_currency]] ->
+        [balance, new_record] = prepare_record(existing_currency, attrs, :withdraw)
+
+        if balance < 0 do
+          {:error, :not_enough_money}
+        else
+          new_balance =
+            case transaction(fn -> write(new_record) end) do
+              {:atomic, _ok} -> balance
+              _ -> elem(existing_currency, 3)
+            end
+
+          {:ok, new_balance}
+        end
+    end
   end
 
-  @impl true
-  def handle_call({:withdraw, user, amount, currency}, _from, _state) do
-    attrs = %{user: user, amount: amount, currency: currency}
-    rate_limit = State.get_rate_limit(user)
-    new_state = State.withdraw(user, attrs, rate_limit)
-    {:reply, new_state, new_state}
+  def do_get_balance(user, currency) do
+    case get_user_currency(user, currency) do
+      [[], []] ->
+        {:error, :user_does_not_exist}
+
+      [_, [existing_currency]] ->
+        {:ok, elem(existing_currency, 3)}
+
+      [_, []] ->
+        {:ok, 0.00}
+    end
   end
 
-  @impl true
-  def handle_call({:get_balance, user, currency}, _from, _state) do
-    rate_limit = State.get_rate_limit(user)
-    new_state = State.get_balance(user, currency, rate_limit)
-    {:reply, new_state, new_state}
+  def do_send(attrs) do
+    case get_both_users(attrs.sender, attrs.receiver) do
+      [_sender, nil] ->
+        {:error, :receiver_does_not_exist}
+
+      [nil, _receiver] ->
+        {:error, :sender_does_not_exist}
+
+      [_sender, _receiver] ->
+        {:ok, amount} = do_get_balance(attrs.sender, attrs.currency)
+
+        case amount < attrs.amount do
+          true ->
+            {:error, :not_enough_money}
+
+          false ->
+            sender_attrs = %{user: attrs.sender, amount: attrs.amount, currency: attrs.currency}
+
+            receiver_attrs = %{
+              user: attrs.receiver,
+              amount: attrs.amount,
+              currency: attrs.currency
+            }
+
+            {:ok, sender_bal} = do_withdraw(attrs.sender, sender_attrs)
+            {:ok, receiver_bal} = do_deposit(attrs.receiver, receiver_attrs)
+
+            {:ok, sender_bal, receiver_bal}
+        end
+    end
   end
 
-  @impl true
-  def handle_call({:send, from_user, to_user, amount, currency}, _from, _state) do
-    attrs = %{
-      sender: from_user,
-      receiver: to_user,
-      amount: amount,
-      currency: currency
-    }
-
-    sender_rate_limit = State.get_rate_limit(from_user)
-    receiver_rate_limit = State.get_rate_limit(to_user)
-    rate_limit = [sender_rate_limit, receiver_rate_limit]
-    new_state = State.send(attrs, rate_limit)
-    {:reply, new_state, new_state}
+  def get_user(user) do
+    transaction(fn ->
+      index_read(@user, user, :name)
+    end)
   end
 
-  @impl true
-  def handle_info({:DOWN, _ref, :process, _pid, _reason}, state) do
-    {:noreply, state}
+  def get_rate_limit(user) do
+    {:atomic, [{_, _id, _name, limit}]} =
+      transaction(fn -> index_read(@rate_limit, user, :name) end)
+
+    limit
   end
 
-  @impl true
-  def handle_info(_msg, state) do
-    {:noreply, state}
+  def update_rate_limit(user, operation)
+      when operation in [:increment, :decrement] do
+    case transaction(fn -> index_read(@rate_limit, user, :name) end) do
+      {:atomic, [{_, id, name, limit}]} ->
+        case operation do
+          :increment ->
+            transaction(fn -> write({@rate_limit, id, name, limit + 1}) end)
+
+          :decrement ->
+            transaction(fn -> write({@rate_limit, id, name, limit - 1}) end)
+        end
+
+      {:atomic, []} ->
+        :ok
+    end
+  end
+
+  defp get_user_currency(user, currency) do
+    {:atomic, new_currency} = transaction(fn -> index_read(@user, user, :name) end)
+
+    {:atomic, existing_currency} =
+      transaction(fn -> match_object({@user, :_, user, :_, currency}) end)
+
+    [new_currency, existing_currency]
+  end
+
+  defp get_both_users(from_user, to_user) do
+    {:atomic, from_user} = transaction(fn -> index_read(@user, from_user, :name) end)
+
+    {:atomic, to_user} = transaction(fn -> index_read(@user, to_user, :name) end)
+
+    [List.first(from_user), List.first(to_user)]
+  end
+
+  defp increment_key do
+    {:atomic, keys} = transaction(fn -> all_keys(@user) end)
+
+    case List.last(keys) do
+      nil -> 1
+      id -> id + 1
+    end
+  end
+
+  defp prepare_record(record, attrs, operation)
+       when operation in [:withdraw, :deposit, :new_deposit] do
+    [id, new_balance] =
+      case operation do
+        :new_deposit ->
+          [increment_key(), Float.round(attrs.amount, 2)]
+
+        :deposit ->
+          [elem(record, 1), Float.round(elem(record, 3) + attrs.amount, 2)]
+
+        :withdraw ->
+          [elem(record, 1), Float.round(elem(record, 3) - attrs.amount, 2)]
+      end
+
+    [
+      new_balance,
+      {
+        @user,
+        id,
+        attrs.user,
+        new_balance,
+        attrs.currency
+      }
+    ]
   end
 end

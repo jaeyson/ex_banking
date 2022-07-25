@@ -8,7 +8,8 @@ defmodule ExBanking.Application do
     children = [
       # Starts a worker by calling: ExBanking.Worker.start_link(arg)
       # {ExBanking.Worker, arg}
-      ExBanking.DynamicSupervisor
+      {ExBanking.InitState, []},
+      {Task.Supervisor, name: ExBanking.TaskSupervisor}
     ]
 
     opts = [strategy: :one_for_one, name: ExBanking.Supervisor]

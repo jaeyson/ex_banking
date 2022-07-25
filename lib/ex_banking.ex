@@ -43,17 +43,21 @@ defmodule ExBanking do
 
   ## Examples
 
-      iex> Bound.create_user("John Smith")
+      iex> ExBanking.create_user("John Smith")
       :ok
 
-      iex> Bound.create_user("John Smith")
+      iex> ExBanking.create_user("John Smith")
       {:error, :user_already_exists}
 
   """
   @impl true
   @spec create_user(user) :: :ok | transaction_error
   def create_user(user) when is_binary(user) do
-    Transaction.create_user(user)
+    ExBanking.TaskSupervisor
+    |> Task.Supervisor.async(fn ->
+      Transaction.add_user(user)
+    end)
+    |> Task.await()
   end
 
   def create_user(_user), do: {:error, :wrong_arguments}
@@ -82,7 +86,18 @@ defmodule ExBanking do
       when is_binary(user) and
              is_number(amount) and
              amount > 0 do
-    Transaction.deposit(user, amount / 1, currency)
+    ExBanking.TaskSupervisor
+    |> Task.Supervisor.async(fn ->
+      attrs = %{user: user, amount: amount / 1, currency: currency}
+      rate_limit = Transaction.get_rate_limit(user)
+
+      Transaction.update_rate_limit(user, :decrement)
+      response = Transaction.deposit(user, attrs, rate_limit)
+      Transaction.update_rate_limit(user, :increment)
+
+      response
+    end)
+    |> Task.await()
   end
 
   def deposit(_user, _amount, _currency), do: {:error, :wrong_arguments}
@@ -114,7 +129,18 @@ defmodule ExBanking do
       when is_binary(user) and
              is_number(amount) and
              is_binary(currency) do
-    Transaction.withdraw(user, amount, currency)
+    ExBanking.TaskSupervisor
+    |> Task.Supervisor.async(fn ->
+      attrs = %{user: user, amount: amount, currency: currency}
+      rate_limit = Transaction.get_rate_limit(user)
+
+      Transaction.update_rate_limit(user, :decrement)
+      response = Transaction.withdraw(user, attrs, rate_limit)
+      Transaction.update_rate_limit(user, :increment)
+
+      response
+    end)
+    |> Task.await()
   end
 
   def withdraw(_user, _amount, _currency), do: {:error, :wrong_arguments}
@@ -140,7 +166,17 @@ defmodule ExBanking do
   def get_balance(user, currency)
       when is_binary(user) and
              is_binary(currency) do
-    Transaction.get_balance(user, currency)
+    ExBanking.TaskSupervisor
+    |> Task.Supervisor.async(fn ->
+      rate_limit = Transaction.get_rate_limit(user)
+      Transaction.get_balance(user, currency, rate_limit)
+      Transaction.update_rate_limit(user, :decrement)
+      response = Transaction.get_balance(user, currency, rate_limit)
+      Transaction.update_rate_limit(user, :increment)
+
+      response
+    end)
+    |> Task.await()
   end
 
   def get_balance(_user, _amount, _currency), do: {:error, :wrong_arguments}
@@ -170,7 +206,25 @@ defmodule ExBanking do
              is_binary(to_user) and
              is_number(amount) and
              is_binary(currency) do
-    Transaction.send(from_user, to_user, amount / 1, currency)
+    ExBanking.TaskSupervisor
+    |> Task.Supervisor.async(fn ->
+      attrs = %{
+        sender: from_user,
+        receiver: to_user,
+        amount: amount / 1,
+        currency: currency
+      }
+
+      sender_rate_limit = Transaction.get_rate_limit(from_user)
+      receiver_rate_limit = Transaction.get_rate_limit(to_user)
+      rate_limit = [sender_rate_limit, receiver_rate_limit]
+      Transaction.update_rate_limit(to_user, :decrement)
+      response = Transaction.send(attrs, rate_limit)
+      Transaction.update_rate_limit(to_user, :increment)
+
+      response
+    end)
+    |> Task.await()
   end
 
   def send(_from_user, _to_user, _amount, _currency), do: {:error, :wrong_arguments}
